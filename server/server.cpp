@@ -537,7 +537,7 @@ void Server::secure()
         break;
     case LogDir:
         root = Configuration::text( Configuration::LogFile );
-        if ( root == "-" ) {
+        if ( root == "-" || root == "stderr" ) {
             root = Configuration::text( Configuration::JailDir );
         }
         else if ( root.startsWith( "syslog/" ) ) {
