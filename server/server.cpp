@@ -43,6 +43,7 @@
 #include "eventloop.h"
 #include "connection.h"
 #include "configuration.h"
+#include "estringlist.h"
 #include "eventloop.h"
 #include "allocator.h"
 #include "resolver.h"
@@ -58,6 +59,7 @@ public:
         : name( n ), stage( Server::Configuration ),
           secured( false ), fork( false ), useCache( USECACHE ),
           chrootMode( Server::JailDir ),
+	  extraConfig( new EStringList ),
           queries( new List< Query > ),
           children( 0 ),
           mainProcess( false )
@@ -70,6 +72,7 @@ public:
     bool fork;
     bool useCache;
     Server::ChrootMode chrootMode;
+    EStringList * extraConfig;
     List< Query > *queries;
     List<pid_t> * children;
     bool mainProcess;
@@ -100,7 +103,7 @@ Server::Server( const char * name, int argc, char * argv[] )
 
     bool uc = false;
     int c;
-    while ( (c=getopt( argc, argv, "fc:C" )) != -1 ) {
+    while ( (c=getopt( argc, argv, "fc:Cs:" )) != -1 ) {
         switch ( c ) {
         case 'f':
             if ( d->fork ) {
@@ -125,6 +128,9 @@ Server::Server( const char * name, int argc, char * argv[] )
                 }
             }
             break;
+	case 's':
+	    d->extraConfig->append( optarg );
+	    break;
         case 'C':
             // -C is undocumented on purpose. it should not change
             // anything except performance, and exists only for
@@ -238,9 +244,9 @@ void Server::setup( Stage s )
 void Server::configuration()
 {
     if ( d->configFile.isEmpty() )
-        Configuration::setup( "archiveopteryx.conf" );
+        Configuration::setup( "archiveopteryx.conf", d->extraConfig );
     else
-        Configuration::setup( d->configFile );
+        Configuration::setup( d->configFile, d->extraConfig );
     if ( d->useCache && !Configuration::scalar( Configuration::MemoryLimit ) )
         d->useCache = false;
 }
