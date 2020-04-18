@@ -374,6 +374,11 @@ static void checkListener( bool use,
     EString a( Configuration::text( address ) );
     uint p( Configuration::scalar( port ) );
 
+    if ( a.startsWith("systemd/") || a.startsWith("fd/") ) {
+        // don't check inherited listen sockets
+        return;
+    }
+
     EStringList addresses;
     if ( a.isEmpty() ) {
         if ( Configuration::toggle( Configuration::UseIPv6 ) )

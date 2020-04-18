@@ -278,17 +278,30 @@ void Server::nameResolution()
 /*! Closes all files except stdout and stderr. Attaches stdin to
     /dev/null in case something uses it. stderr is kept open so
     that we can tell our daddy about any disasters.
+
+    If ServerProcesses == 1 then we assume archiveopteryx is
+    running as a child in a process manager, e.g. systemd or
+    circusd.  In this situation, files are _not_ closed so any
+    inherited sockets are still available when Listeners are
+    prepared.
 */
 
 void Server::files()
 {
-    int s = getdtablesize();
-    while ( s > 0 ) {
-        s--;
-        if ( s != 2 && s != 1 )
-            close( s );
+    uint children = 1;
+    if ( d->name == "archiveopteryx" )
+        children = Configuration::scalar( Configuration::ServerProcesses );
+
+    if ( children > 1 ) {
+        // classic archiveopteryx/logd w/built-in child management
+        int s = getdtablesize();
+        while ( s > 0 ) {
+            s--;
+            if ( s != 2 && s != 1 )
+                close( s );
+        }
+        s = open( "/dev/null", O_RDWR );
     }
-    s = open( "/dev/null", O_RDWR );
 
     Entropy::setup();
 }

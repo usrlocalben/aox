@@ -25,6 +25,8 @@ public:
     Protocol protocol() const;
     EString address() const;
     uint port() const;
+    bool inherited() const;
+    int fd() const;
     void zeroPort();
 
     struct sockaddr *sockaddr() const;
