@@ -280,8 +280,6 @@ void Configuration::add( const EString & l )
     i++;
     while ( l[i] == ' ' || l[i] == '\t' )
         i++;
-    if ( d->contains( name ) )
-        log( "Variable specified twice: " + name, Log::Disaster );
     d->seen.append( name );
 
     uint n = 0;
@@ -634,7 +632,7 @@ void Configuration::report()
     tolerated silently. Another installer-helping measure.
 */
 
-void Configuration::setup( const EString & global, bool allowFailure )
+void Configuration::setup( const EString & global, const EStringList * const extra, bool allowFailure )
 {
     d = new ConfigurationData;
     Allocator::addEternal( d, "configuration data" );
@@ -646,6 +644,14 @@ void Configuration::setup( const EString & global, bool allowFailure )
     else
         read( EString( compiledIn( ConfigDir ) ) + "/" + global,
               allowFailure );
+
+    if ( extra ) {
+        EStringList::Iterator it( *extra );
+        while ( it ) {
+            add(*it);
+            ++it;
+        }
+    }
 
     EString hn = text( Hostname );
     if ( hn.find( '.' ) < 0 )
