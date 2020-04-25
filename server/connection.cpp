@@ -29,6 +29,17 @@
 // time
 #include <time.h>
 
+// #include "estringlist.h"
+// #include <string.h> // memcmp
+// #include <arpa/inet.h> // ntohl
+
+static int min(int a, int b) {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
+
 
 class ConnectionData
     : public Garbage
@@ -42,6 +53,7 @@ public:
           state( Connection::Invalid ),
           type( Connection::Client ),
           pending( false ),
+          needProxyCheck( true ),
           haveRealPeer( false ),
           haveRealSelf( false )
     {}
@@ -59,6 +71,7 @@ public:
     bool pending;
 
     // proxied connections
+    bool needProxyCheck;
     bool haveRealPeer;
     bool haveRealSelf;
     sockaddr realPeer;
@@ -1122,3 +1135,227 @@ class Session * Connection::session() const
 {
     return d->session;
 }
+
+
+/*! parse a PROXY v1 header unless
+      - it has already been executed, or
+      - input stream already began without seeing it
+*/
+
+
+bool Connection::checkProxyHeader()
+{
+    Buffer * r = readBuffer();
+
+    if ( !d->needProxyCheck )
+        return true;
+
+    // peek at the first few bytes for signature
+    const char * const sig = "PROXY ";
+    const int n = min( 6, r->size() );
+    for ( int i = 0; i < n; ++i ) {
+        if ( (*r)[i] != sig[i] ) {
+            d->needProxyCheck = false;
+            return true;
+        }
+    }
+    if ( n < 6 ) {
+        // not dead yet, but not enough chars to be sure
+        return false;
+    }
+
+    EString * s;
+    const int maxMessageLength = 107;
+    s = r->removeLine( maxMessageLength + 2 );  // incl. \r\n
+    if ( !s ) {
+        if ( r->size() >= maxMessageLength + 2 ) {
+            // PROXY message is too long.
+            // disable proxy checking, and let it fail
+            // in the protocol
+            d->needProxyCheck = false;
+            return true;
+        } else {
+            // still waiting for a whole line
+            return false;
+        }
+    }
+    // we consumed a line of text -- there's no turning back now
+    d->needProxyCheck = false;
+
+    EStringList * segs = EStringList::split( ' ', *s );
+    const int numWords = segs->count();
+    if ( numWords != 6 ) {
+        log( "unexpected PROXY header words (expected 6, received " + fn(numWords) + ")", Log::Error );
+        return true;
+    }
+
+    EString& leader = *segs->shift();  // "PROXY"
+    EString& proto = *segs->shift();   // "TCP4"
+    EString& peerAddr = *segs->shift();
+    EString& selfAddr = *segs->shift();
+    EString& peerPortText = *segs->shift();
+    EString& selfPortText = *segs->shift();
+
+    bool good;
+    int peerPort = peerPortText.number( &good );
+    if ( !good ) {
+        log( "invalid proxy peer port# \"" + peerPortText + "\"", Log::Error );
+        return true;
+    }
+    int selfPort = selfPortText.number( &good );
+    if ( !good ) {
+        log( "invalid proxy self port# \"" + selfPortText + "\"", Log::Error );
+        return true;
+    }
+
+    Endpoint realPeer( peerAddr, peerPort );
+    if ( !realPeer.valid() ) {
+        log( "invalid PROXY peer endpoint \"" + peerAddr + ":" + fn(peerPort) + "\"", Log::Error );
+        return true;
+    }
+
+    Endpoint realSelf( selfAddr, selfPort );
+    if ( !realSelf.valid() ) {
+        log( "invalid PROXY self endpoint \"" + selfAddr + ":" + fn(selfPort) + "\"", Log::Error );
+        return true;
+    }
+
+    setRealPeer( realPeer.sockaddr() );
+    setRealSelf( realSelf.sockaddr() );
+    log( "PROXY peer " + peerAddr + ":" + fn(peerPort) + " is connected via " + selfAddr + ":" + fn(selfPort), Log::Significant );
+
+    return true;
+}
+
+
+/*
+const char v2sig[13] = "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A";
+
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+
+struct Hdr {
+    uint8_t sig[12];
+    uint8_t ver_cmd;
+    uint8_t fam;
+    uint16_t len;
+    union {
+        struct {  // for TCP/UDP over IPv4, len = 12
+            uint32_t src_addr;
+            uint32_t dst_addr;
+            uint16_t src_port;
+            uint16_t dst_port;
+        } ip4;
+        struct {  // for TCP/UDP over IPv6, len = 36
+            uint8_t  src_addr[16];
+            uint8_t  dst_addr[16];
+            uint16_t src_port;
+            uint16_t dst_port;
+        } ip6;
+        struct {  // for AF_UNIX sockets, len = 216
+            uint8_t src_addr[108];
+            uint8_t dst_addr[108];
+        } unx;
+    } addr;
+};
+*/
+
+
+/*
+bool IMAP::maybeParseProxyLeader()
+{
+    Buffer * r = readBuffer();
+    Hdr msg;
+
+    if ( !d->maybeProxy )
+        return true;
+
+    log( ">>> maybeParseProxyLeader()", Log::Debug );
+    if ( r->size() < 16 ) {
+        log( ">>> size is " + fn(r->size()) + ", waiting for more data", Log::Debug );
+        return false;  // still waiting...
+    }
+
+    const int n = min( sizeof(Hdr), r->size() );
+    for ( int i=0; i<n; ++i )
+        reinterpret_cast<char*>(&msg)[i] = (*r)[i];
+
+    if ( memcmp( &msg, v2sig, 12 ) != 0 ) {
+        log( "PROXY v2 signature BAD", Log::Debug );
+        // signature does not match
+        d->maybeProxy = false;
+        return true;
+    } else {
+        log( "PROXY v2 signature OK", Log::Debug );
+    }
+
+    if ( ( msg.ver_cmd & 0xf0 ) != 0x20 ) {
+        // version nibble is not 2
+        log( "PROXY binary signature present, but version != 2", Log::Error );
+        d->maybeProxy = false;
+        return true;
+    } else {
+        log( "PROXY version is 2", Log::Debug );
+    }
+
+    int size = 16 + ntohs( msg.len );
+    if ( n < size ) {
+        // still waiting...
+        log( "expecting " + fn(size) + " bytes, still waiting", Log::Debug );
+        return false;
+    } else {
+        log( "have enough data to decode", Log::Debug );
+    }
+
+    // we received a valid PROXY blob, so we will continue
+    // even if it is a type that we can't support
+    r->remove(size);
+    d->maybeProxy = false;
+
+    sockaddr_storage peer;
+    sockaddr_storage self;
+
+    switch ( msg.ver_cmd & 0xf ) {
+    case 0x01: // PROXY command
+        switch ( msg.fam ) {
+        case 0x11: // TCPv4
+            log( "injecting PROXY TCPv4 data", Log::Debug );
+            ((struct sockaddr_in *)&peer)->sin_family = AF_INET;
+            ((struct sockaddr_in *)&peer)->sin_addr.s_addr = msg.addr.ip4.src_addr;
+            ((struct sockaddr_in *)&peer)->sin_port = msg.addr.ip4.src_port;
+            ((struct sockaddr_in *)&self)->sin_family = AF_INET;
+            ((struct sockaddr_in *)&self)->sin_addr.s_addr = msg.addr.ip4.dst_addr;
+            ((struct sockaddr_in *)&self)->sin_port = msg.addr.ip4.dst_port;
+            setRealPeer( (sockaddr*)&peer );
+            setRealSelf( (sockaddr*)&self );
+            break;
+        case 0x21: // TCPv6
+            log( "injecting PROXY TCPv6 data", Log::Debug );
+            ((struct sockaddr_in6 *)&peer)->sin6_family = AF_INET6;
+            memcpy(&((struct sockaddr_in6 *)&peer)->sin6_addr, msg.addr.ip6.src_addr, 16);
+            ((struct sockaddr_in6 *)&peer)->sin6_port = msg.addr.ip6.src_port;
+            ((struct sockaddr_in6 *)&self)->sin6_family = AF_INET6;
+            memcpy(&((struct sockaddr_in6 *)&self)->sin6_addr, msg.addr.ip6.dst_addr, 16);
+            ((struct sockaddr_in6 *)&self)->sin6_port = msg.addr.ip6.dst_port;
+            setRealPeer( (sockaddr*)&peer );
+            setRealSelf( (sockaddr*)&self );
+            break;
+        default:
+            // unsupported protocol, keep local address
+            log( "PROXY using unsupported protocol " + fn(msg.fam) + ", ignoring", Log::Error );
+            break;
+        }
+        break;
+    case 0x00: // LOCAL command
+        // keep local connection address for LOCAL
+        log( "PROXY LOCAL!", Log::Debug );
+        break;
+    default:
+        log( "PROXY unknown command " + fn(msg.ver_cmd & 0xf) + ", ignoring", Log::Error );
+        break;
+    }
+    log( "<<< maybeParseProxyLeader()", Log::Debug );
+    return true;
+}
+*/
