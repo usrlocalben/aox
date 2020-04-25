@@ -307,17 +307,23 @@ bool IMAP::maybeParseProxyLeader()
     if ( !d->maybeProxy )
         return true;
 
-    if ( r->size() < 16 )
+    log( ">>> maybeParseProxyLeader()", Log::Debug );
+    if ( r->size() < 16 ) {
+        log( ">>> size is " + fn(r->size()) + ", waiting for more data", Log::Debug );
         return false;  // still waiting...
+    }
 
     const int n = min( sizeof(Hdr), r->size() );
     for ( int i=0; i<n; ++i )
         reinterpret_cast<char*>(&msg)[i] = (*r)[i];
 
     if ( memcmp( &msg, v2sig, 12 ) != 0 ) {
+        log( "PROXY v2 signature BAD", Log::Debug );
         // signature does not match
         d->maybeProxy = false;
         return true;
+    } else {
+        log( "PROXY v2 signature OK", Log::Debug );
     }
 
     if ( ( msg.ver_cmd & 0xf0 ) != 0x20 ) {
@@ -325,12 +331,17 @@ bool IMAP::maybeParseProxyLeader()
         log( "PROXY binary signature present, but version != 2", Log::Error );
         d->maybeProxy = false;
         return true;
+    } else {
+        log( "PROXY version is 2", Log::Debug );
     }
 
     int size = 16 + ntohs( msg.len );
     if ( n < size ) {
         // still waiting...
+        log( "expecting " + fn(size) + " bytes, still waiting", Log::Debug );
         return false;
+    } else {
+        log( "have enough data to decode", Log::Debug );
     }
 
     // we received a valid PROXY blob, so we will continue
@@ -345,6 +356,7 @@ bool IMAP::maybeParseProxyLeader()
     case 0x01: // PROXY command
         switch ( msg.fam ) {
         case 0x11: // TCPv4
+            log( "injecting PROXY TCPv4 data", Log::Debug );
             ((struct sockaddr_in *)&peer)->sin_family = AF_INET;
             ((struct sockaddr_in *)&peer)->sin_addr.s_addr = msg.addr.ip4.src_addr;
             ((struct sockaddr_in *)&peer)->sin_port = msg.addr.ip4.src_port;
@@ -355,6 +367,7 @@ bool IMAP::maybeParseProxyLeader()
             setRealSelf( (sockaddr*)&self );
             break;
         case 0x21: // TCPv6
+            log( "injecting PROXY TCPv6 data", Log::Debug );
             ((struct sockaddr_in6 *)&peer)->sin6_family = AF_INET6;
             memcpy(&((struct sockaddr_in6 *)&peer)->sin6_addr, msg.addr.ip6.src_addr, 16);
             ((struct sockaddr_in6 *)&peer)->sin6_port = msg.addr.ip6.src_port;
@@ -372,11 +385,13 @@ bool IMAP::maybeParseProxyLeader()
         break;
     case 0x00: // LOCAL command
         // keep local connection address for LOCAL
+        log( "PROXY LOCAL!", Log::Debug );
         break;
     default:
         log( "PROXY unknown command " + fn(msg.ver_cmd & 0xf) + ", ignoring", Log::Error );
         break;
     }
+    log( "<<< maybeParseProxyLeader()", Log::Debug );
     return true;
 }
 

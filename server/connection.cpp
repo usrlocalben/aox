@@ -58,7 +58,7 @@ public:
     Connection::Type type;
     bool pending;
 
-	// proxied connections
+    // proxied connections
     bool haveRealPeer;
     bool haveRealSelf;
     sockaddr realPeer;
@@ -497,12 +497,16 @@ Endpoint Connection::self() const
     socklen_t n = sizeof( sa );
 
     if ( valid() && !d->self.valid() ) {
+        // log( "creating self Endpoint", Log::Debug );
         if ( d->haveRealSelf ) {
+            // log( "using realSelf!", Log::Debug );
             d->self = Endpoint( (sockaddr *)&d->realSelf, 0 );
         } else {
             if ( ::getsockname( d->fd, (sockaddr *)&sa, &n ) >= 0 )
                 d->self = Endpoint( (sockaddr *)&sa, n );
         }
+    } else {
+        // log( "reusing self Endpoint", Log::Debug );
     }
 
     return d->self;
@@ -519,12 +523,16 @@ Endpoint Connection::peer() const
     socklen_t n = sizeof( sa );
 
     if ( valid() && !d->peer.valid() ) {
+        // log( "creating peer Endpoint", Log::Debug );
         if ( d->haveRealPeer ) {
+            // log( "using realPeer!", Log::Debug );
             d->peer = Endpoint( (sockaddr *)&d->realPeer, 0 );
         } else {
             if ( ::getpeername( d->fd, (sockaddr *)&sa, &n ) >= 0 )
                 d->peer = Endpoint( (sockaddr *)&sa, n );
         }
+    } else {
+        // log( "reusing peer Endpoint", Log::Debug );
     }
 
     return d->peer;
