@@ -61,14 +61,8 @@ public:
 	// proxied connections
     bool haveRealPeer;
     bool haveRealSelf;
-	union {
-        struct sockaddr_in in;
-        struct sockaddr_in6 in6;
-    } realPeer;
-    union {
-        struct sockaddr_in in;
-        struct sockaddr_in6 in6;
-    } realSelf;
+    sockaddr realPeer;
+    sockaddr realSelf;
 
     Endpoint self, peer;
     Connection::Event event;
@@ -503,8 +497,12 @@ Endpoint Connection::self() const
     socklen_t n = sizeof( sa );
 
     if ( valid() && !d->self.valid() ) {
-        if ( ::getsockname( d->fd, (sockaddr *)&sa, &n ) >= 0 )
-            d->self = Endpoint( (sockaddr *)&sa, n );
+        if ( d->haveRealSelf ) {
+            d->self = Endpoint( (sockaddr *)&d->realSelf, 0 );
+        } else {
+            if ( ::getsockname( d->fd, (sockaddr *)&sa, &n ) >= 0 )
+                d->self = Endpoint( (sockaddr *)&sa, n );
+        }
     }
 
     return d->self;
@@ -521,8 +519,8 @@ Endpoint Connection::peer() const
     socklen_t n = sizeof( sa );
 
     if ( valid() && !d->peer.valid() ) {
-        if ( d->proxy ) {
-            d->peer = Endpoint( (sockaddr *)&d->realSockAddr, sizeof(d->realSockAddr) );
+        if ( d->haveRealPeer ) {
+            d->peer = Endpoint( (sockaddr *)&d->realPeer, 0 );
         } else {
             if ( ::getpeername( d->fd, (sockaddr *)&sa, &n ) >= 0 )
                 d->peer = Endpoint( (sockaddr *)&sa, n );
@@ -1080,9 +1078,9 @@ void Connection::substitute( Connection * other, Event event )
     Since the PROXY message is received in the L7 stream, the higher-
     order class needs a way to push it back into the ConnectionData.
 */
-void setRealPeer( const struct sockaddr *sa )
+void Connection::setRealPeer( const struct sockaddr *sa )
 {
-    *d->realPeer = *sa;
+    d->realPeer = *sa;
     d->haveRealPeer = true;
 }
 
@@ -1091,9 +1089,9 @@ void setRealPeer( const struct sockaddr *sa )
     Since the PROXY message is received in the L7 stream, the higher-
     order class needs a way to push it back into the ConnectionData.
 */
-void setRealSelf( const struct sockaddr *sa )
+void Connection::setRealSelf( const struct sockaddr *sa )
 {
-    *d->realSelf = *sa;
+    d->realSelf = *sa;
     d->haveRealSelf = true;
 }
 

@@ -27,6 +27,9 @@
 
 #include "time.h"
 
+#include <sys/socket.h>  // AF_INET
+#include <string.h> // memcmp
+#include <arpa/inet.h> // ntohl
 
 static bool endsWithLiteral( const EString *, uint *, bool * );
 
@@ -60,7 +63,7 @@ public:
         eventMap->add( normal );
     }
 
-	bool maybeProxy;
+    bool maybeProxy;
     IMAP::State state;
 
     Command * reader;
@@ -258,8 +261,11 @@ void IMAP::react( Event e )
 /*! Reads input from the client, and feeds it to the appropriate Command
     handlers.
 */
-const char v2sig[12] = "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A";
+const char v2sig[13] = "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A";
 
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
 
 struct Hdr {
     uint8_t sig[12];
@@ -286,87 +292,92 @@ struct Hdr {
     } addr;
 };
 
+static int min(int a, int b) {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
 
-bool maybeParseProxyLeader()
+bool IMAP::maybeParseProxyLeader()
 {
     Buffer * r = readBuffer();
-    struct sockaddr_storage from;
-	Hdr hdr;
+    Hdr msg;
 
-	if ( !d->maybeProxy )
-		return true;
+    if ( !d->maybeProxy )
+        return true;
 
-	if ( r->size() < 16 )
-		return false;  // still waiting...
+    if ( r->size() < 16 )
+        return false;  // still waiting...
 
-	const int n = min( sizeof(Hdr), r->size() );
-	for ( int i=0; i<n; ++i )
-		reinterpret_cast<char*>(&msg)[i] = r[i];
+    const int n = min( sizeof(Hdr), r->size() );
+    for ( int i=0; i<n; ++i )
+        reinterpret_cast<char*>(&msg)[i] = (*r)[i];
 
-	if ( memcmp( &msg, v2sig, 12 ) != 0 ) {
-		// signature does not match
-		d->maybeProxy = false;
-		return true;
-	}
+    if ( memcmp( &msg, v2sig, 12 ) != 0 ) {
+        // signature does not match
+        d->maybeProxy = false;
+        return true;
+    }
 
-	if ( ( msg.ver_cmd & 0xf0 ) != 0x20 ) {
-		// version nibble is not 2
-		log( "PROXY binary signature present, but version != 2", Log::Error );
-		d->maybeProxy = false;
-		return true;
-	}
+    if ( ( msg.ver_cmd & 0xf0 ) != 0x20 ) {
+        // version nibble is not 2
+        log( "PROXY binary signature present, but version != 2", Log::Error );
+        d->maybeProxy = false;
+        return true;
+    }
 
-	int size = 16 + ntohs( msg.len );
-	if ( n < size ) {
-		// still waiting...
-		return false;
-	}
+    int size = 16 + ntohs( msg.len );
+    if ( n < size ) {
+        // still waiting...
+        return false;
+    }
 
-	// we received a valid PROXY blob, so we will continue
-	// even if it is a type that we can't support
-	r->remove(size);
-	d->maybeProxy = false;
+    // we received a valid PROXY blob, so we will continue
+    // even if it is a type that we can't support
+    r->remove(size);
+    d->maybeProxy = false;
 
-	sockaddr_storage peer;
-	sockaddr_storage self;
+    sockaddr_storage peer;
+    sockaddr_storage self;
 
-	switch ( msg.ver_cmd & 0xf ) {
-	case 0x01: // PROXY command
-		switch ( msg.fam ) {
-		case 0x11: // TCPv4
-			((struct sockaddr_in *)&peer)->sin_family = AF_INET;
-			((struct sockaddr_in *)&peer)->sin_addr.s_addr = msg.addr.ip4.src_addr;
-			((struct sockaddr_in *)&peer)->sin_port = msg.addr.ip4.src_port;
-			((struct sockaddr_in *)&self)->sin_family = AF_INET;
-			((struct sockaddr_in *)&self)->sin_addr.s_addr = msg.addr.ip4.dst_addr;
-			((struct sockaddr_in *)&self)->sin_port = msg.addr.ip4.dst_port;
-			setRealPeer( (sockaddr*)peer );
-			setRealSelf( (sockaddr*)self );
-			break;
-		case 0x21: // TCPv6
-			((struct sockaddr_in6 *)&peer)->sin6_family = AF_INET6;
-			memcpy(&((struct sockaddr_in6 *)&peer)->sin6_addr, msg.addr.ip6.src_addr, 16);
-			((struct sockaddr_in6 *)&peer)->sin6_port = msg.addr.ip6.src_port;
-			((struct sockaddr_in6 *)&self)->sin6_family = AF_INET6;
-			memcpy(&((struct sockaddr_in6 *)&self)->sin6_addr, msg.addr.ip6.dst_addr, 16);
-			((struct sockaddr_in6 *)&self)->sin6_port = msg.addr.ip6.dst_port;
-			setRealPeer( (sockaddr*)peer );
-			setRealSelf( (sockaddr*)self );
-			break;
-		default:
-			// unsupported protocol, keep local address
-			log( "PROXY using unsupported protocol " + fn(msg.fam) + ", ignoring", Log::Error );
-			break;
-		}
-		break;
-	case 0x00: // LOCAL command
-		// keep local connection address for LOCAL
-		break;
-	default:
-		log( "PROXY unknown command " + fn(msg.ver_cmd & 0xf) + ", ignoring", Log::Error );
-		break;
-	}
-	return true;
+    switch ( msg.ver_cmd & 0xf ) {
+    case 0x01: // PROXY command
+        switch ( msg.fam ) {
+        case 0x11: // TCPv4
+            ((struct sockaddr_in *)&peer)->sin_family = AF_INET;
+            ((struct sockaddr_in *)&peer)->sin_addr.s_addr = msg.addr.ip4.src_addr;
+            ((struct sockaddr_in *)&peer)->sin_port = msg.addr.ip4.src_port;
+            ((struct sockaddr_in *)&self)->sin_family = AF_INET;
+            ((struct sockaddr_in *)&self)->sin_addr.s_addr = msg.addr.ip4.dst_addr;
+            ((struct sockaddr_in *)&self)->sin_port = msg.addr.ip4.dst_port;
+            setRealPeer( (sockaddr*)&peer );
+            setRealSelf( (sockaddr*)&self );
+            break;
+        case 0x21: // TCPv6
+            ((struct sockaddr_in6 *)&peer)->sin6_family = AF_INET6;
+            memcpy(&((struct sockaddr_in6 *)&peer)->sin6_addr, msg.addr.ip6.src_addr, 16);
+            ((struct sockaddr_in6 *)&peer)->sin6_port = msg.addr.ip6.src_port;
+            ((struct sockaddr_in6 *)&self)->sin6_family = AF_INET6;
+            memcpy(&((struct sockaddr_in6 *)&self)->sin6_addr, msg.addr.ip6.dst_addr, 16);
+            ((struct sockaddr_in6 *)&self)->sin6_port = msg.addr.ip6.dst_port;
+            setRealPeer( (sockaddr*)&peer );
+            setRealSelf( (sockaddr*)&self );
+            break;
+        default:
+            // unsupported protocol, keep local address
+            log( "PROXY using unsupported protocol " + fn(msg.fam) + ", ignoring", Log::Error );
+            break;
+        }
+        break;
+    case 0x00: // LOCAL command
+        // keep local connection address for LOCAL
+        break;
+    default:
+        log( "PROXY unknown command " + fn(msg.ver_cmd & 0xf) + ", ignoring", Log::Error );
+        break;
+    }
+    return true;
 }
 
 
@@ -375,10 +386,10 @@ void IMAP::parse()
     Scope s;
     Buffer * r = readBuffer();
 
-	bool cont = maybeParseProxyLeader();
-	if ( !cont ) {
-		return;
-	}
+    bool cont = maybeParseProxyLeader();
+    if ( !cont ) {
+        return;
+    }
 
     while ( true ) {
         // We read a line of client input, possibly including literals,

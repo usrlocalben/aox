@@ -106,8 +106,8 @@ protected:
     void substitute( Connection *, Event );
     void init( int );
 
-	void setRealPeer( const struct sockaddr * );
-	void setRealSelf( const struct sockaddr * );
+    void setRealPeer( const struct sockaddr * );
+    void setRealSelf( const struct sockaddr * );
 
 private:
     class ConnectionData *d;
