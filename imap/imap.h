@@ -19,6 +19,7 @@ class IMAP
 public:
     IMAP( int );
 
+	bool maybeParseProxyLeader();
     void parse();
     virtual void react( Event );
     void reserve( Command * );

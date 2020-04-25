@@ -41,7 +41,9 @@ public:
           wbt( 0 ), wbs( 0 ),
           state( Connection::Invalid ),
           type( Connection::Client ),
-          pending( false )
+          pending( false ),
+          haveRealPeer( false ),
+          haveRealSelf( false )
     {}
 
     Buffer *r, *w;
@@ -55,6 +57,19 @@ public:
 
     Connection::Type type;
     bool pending;
+
+	// proxied connections
+    bool haveRealPeer;
+    bool haveRealSelf;
+	union {
+        struct sockaddr_in in;
+        struct sockaddr_in6 in6;
+    } realPeer;
+    union {
+        struct sockaddr_in in;
+        struct sockaddr_in6 in6;
+    } realSelf;
+
     Endpoint self, peer;
     Connection::Event event;
 };
@@ -506,8 +521,12 @@ Endpoint Connection::peer() const
     socklen_t n = sizeof( sa );
 
     if ( valid() && !d->peer.valid() ) {
-        if ( ::getpeername( d->fd, (sockaddr *)&sa, &n ) >= 0 )
-            d->peer = Endpoint( (sockaddr *)&sa, n );
+        if ( d->proxy ) {
+            d->peer = Endpoint( (sockaddr *)&d->realSockAddr, sizeof(d->realSockAddr) );
+        } else {
+            if ( ::getpeername( d->fd, (sockaddr *)&sa, &n ) >= 0 )
+                d->peer = Endpoint( (sockaddr *)&sa, n );
+        }
     }
 
     return d->peer;
@@ -1054,6 +1073,28 @@ void Connection::substitute( Connection * other, Event event )
     other->d->pending = true;
     other->d->event = event;
     EventLoop::global()->addConnection( other );
+}
+
+
+/*! Update the address struct for the peer (via PROXY v2)
+    Since the PROXY message is received in the L7 stream, the higher-
+    order class needs a way to push it back into the ConnectionData.
+*/
+void setRealPeer( const struct sockaddr *sa )
+{
+    *d->realPeer = *sa;
+    d->haveRealPeer = true;
+}
+
+
+/*! Update the address struct for ourselves (via PROXY v2)
+    Since the PROXY message is received in the L7 stream, the higher-
+    order class needs a way to push it back into the ConnectionData.
+*/
+void setRealSelf( const struct sockaddr *sa )
+{
+    *d->realSelf = *sa;
+    d->haveRealSelf = true;
 }
 
 

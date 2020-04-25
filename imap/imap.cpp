@@ -36,7 +36,8 @@ class IMAPData
 {
 public:
     IMAPData()
-        : state( IMAP::NotAuthenticated ), reader( 0 ),
+        : maybeProxy( true ),
+          state( IMAP::NotAuthenticated ), reader( 0 ),
           prefersAbsoluteMailboxes( false ),
           runningCommands( false ), runCommandsAgain( false ),
           readingLiteral( false ),
@@ -59,6 +60,7 @@ public:
         eventMap->add( normal );
     }
 
+	bool maybeProxy;
     IMAP::State state;
 
     Command * reader;
@@ -256,11 +258,127 @@ void IMAP::react( Event e )
 /*! Reads input from the client, and feeds it to the appropriate Command
     handlers.
 */
+const char v2sig[12] = "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A";
+
+
+struct v2 {
+    uint8_t sig[12];
+    uint8_t ver_cmd;
+    uint8_t fam;
+    uint16_t len;
+    union {
+        struct {  /* for TCP/UDP over IPv4, len = 12 */
+            uint32_t src_addr;
+            uint32_t dst_addr;
+            uint16_t src_port;
+            uint16_t dst_port;
+        } ip4;
+        struct {  /* for TCP/UDP over IPv6, len = 36 */
+            uint8_t  src_addr[16];
+            uint8_t  dst_addr[16];
+            uint16_t src_port;
+            uint16_t dst_port;
+        } ip6;
+        struct {  /* for AF_UNIX sockets, len = 216 */
+            uint8_t src_addr[108];
+            uint8_t dst_addr[108];
+        } unx;
+    } addr;
+};
+
+
+bool maybeParseProxyLeader()
+{
+    Buffer * r = readBuffer();
+    struct sockaddr_storage from;
+	v2 hdr;
+
+	if ( !d->maybeProxy )
+		return true;
+
+	if ( r->size() < 16 )
+		return false;  // still waiting...
+
+	const int n = min( sizeof(v2), r->size() );
+	for ( int i=0; i<n; ++i )
+		reinterpret_cast<char*>(&v2)[i] = r[i];
+
+	if ( memcmp( &v2, v2sig, 12 ) != 0 ) {
+		// signature does not match
+		d->maybeProxy = false;
+		return true;
+	}
+
+	if ( ( v2.ver_cmd & 0xf0 ) != 0x20 ) {
+		// version nibble is not 2
+		log( "PROXY binary signature present, but version != 2", Log::Error );
+		d->maybeProxy = false;
+		return true;
+	}
+
+	int size = 16 + ntohs( v2.len );
+	if ( n < size ) {
+		// still waiting...
+		return false;
+	}
+
+	// we received a valid PROXY blob, so we will continue
+	// even if it is a type that we can't support
+	r->remove(size);
+	d->maybeProxy = false;
+
+	sockaddr_storage peer;
+	sockaddr_storage self;
+
+	switch ( v2.ver_cmd & 0xf ) {
+	case 0x01: // PROXY command
+		switch ( v2.fam ) {
+		case 0x11: // TCPv4
+			((struct sockaddr_in *)&peer)->sin_family = AF_INET;
+			((struct sockaddr_in *)&peer)->sin_addr.s_addr = v2.addr.ip4.src_addr;
+			((struct sockaddr_in *)&peer)->sin_port = v2.addr.ip4.src_port;
+			((struct sockaddr_in *)&self)->sin_family = AF_INET;
+			((struct sockaddr_in *)&self)->sin_addr.s_addr = v2.addr.ip4.dst_addr;
+			((struct sockaddr_in *)&self)->sin_port = v2.addr.ip4.dst_port;
+			setRealPeer( (sockaddr*)peer );
+			setRealSelf( (sockaddr*)self );
+			break;
+		case 0x21: // TCPv6
+			((struct sockaddr_in6 *)&peer)->sin6_family = AF_INET6;
+			memcpy(&((struct sockaddr_in6 *)&peer)->sin6_addr, hdr.v2.addr.ip6.src_addr, 16);
+			((struct sockaddr_in6 *)&peer)->sin6_port = hdr.v2.addr.ip6.src_port;
+			((struct sockaddr_in6 *)&self)->sin6_family = AF_INET6;
+			memcpy(&((struct sockaddr_in6 *)&self)->sin6_addr, hdr.v2.addr.ip6.dst_addr, 16);
+			((struct sockaddr_in6 *)&self)->sin6_port = hdr.v2.addr.ip6.dst_port;
+			setRealPeer( (sockaddr*)peer );
+			setRealSelf( (sockaddr*)self );
+			break;
+		default:
+			// unsupported protocol, keep local address
+			log( "PROXY using unsupported protocol " + fn(v2.fam) + ", ignoring", Log::Error );
+			break;
+		}
+		break;
+	case 0x00: // LOCAL command
+		// keep local connection address for LOCAL
+		break;
+	default:
+		log( "PROXY unknown command " + fn(v2.ver_cmd & 0xf) + ", ignoring", Log::Error );
+		break;
+	}
+	return true;
+}
+
 
 void IMAP::parse()
 {
     Scope s;
     Buffer * r = readBuffer();
+
+	bool cont = maybeParseProxyLeader();
+	if ( !cont ) {
+		return;
+	}
 
     while ( true ) {
         // We read a line of client input, possibly including literals,
