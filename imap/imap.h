@@ -81,7 +81,7 @@ class IMAPS
 {
 public:
     IMAPS( int );
-    virtual void react( Event );
+    void react( Event );
 };
 
 
