@@ -172,7 +172,6 @@ void IMAP::enqueueBanner()
 }
 
 
-
 /*! Handles the incoming event \a e as appropriate for its type. */
 
 void IMAP::react( Event e )

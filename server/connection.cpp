@@ -29,9 +29,6 @@
 // time
 #include <time.h>
 
-// #include "estringlist.h"
-// #include <string.h> // memcmp
-// #include <arpa/inet.h> // ntohl
 
 static int min(int a, int b) {
     if (a < b) {
