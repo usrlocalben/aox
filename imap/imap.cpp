@@ -736,11 +736,8 @@ void IMAP::setSession( Session * s )
 IMAPS::IMAPS( int s )
     : IMAP( s )
 {
-    if ( s < 0 )
-        return;
-
-    setTimeoutAfter( 120 );
-    EventLoop::global()->addConnection( this );
+    // un-send the banner sent by IMAP-ctor
+    writeBuffer()->removeLine();
 }
 
 
