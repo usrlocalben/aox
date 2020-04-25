@@ -24,8 +24,8 @@ class TlsThreadData
 public:
     TlsThreadData()
         : Garbage(),
-	  preBuf( 0 ), preLen( 0 ),
           ssl( 0 ),
+          preBuf( 0 ), preLen( 0 ),
           ctrb( 0 ),
           ctrbo( 0 ), ctrbs( 0 ),
           ctwb( 0 ),
@@ -40,9 +40,9 @@ public:
           broken( false )
         {}
 
+    SSL * ssl;
     char * preBuf;
     int preLen;
-    SSL * ssl;
 
     // clear-text read buffer, ie. data coming from aox
     char * ctrb;
@@ -201,21 +201,8 @@ void TlsThread::start()
     bool ctgone = false;
     bool encgone = false;
     bool finish = false;
-    bool first = true;
     while ( !finish && !d->broken ) {
 
-        if ( first ) {
-            first = false;
-            if ( d->preBuf ) {
-                if ( d->preLen > bs ) {
-                    log( "TlSThread pre-loaded buffer (" + fn(d->preLen) + "b) is larger than blocksize (" + fn(bs) + "b)", Log::Error );
-                    d->preLen = bs;
-                }
-                log( "TlSThread pre-loaded buffer (" + fn(d->preLen) + "b)", Log::Debug );
-                memcpy( d->encrb, d->preBuf, d->preLen );
-                d->encrbs = d->preLen;
-            }
-        }
 
         // are our read buffers empty, and select said we can read? if
         // so, try to read
@@ -233,6 +220,20 @@ void TlsThread::start()
                 d->encrbs = 0;
             }
         }
+
+        if ( d->preBuf ) {
+            // on the first iteration, the
+	    // preBuf data is pushed into
+	    // the stream
+            if ( d->preLen > bs ) {
+                d->preLen = bs;
+            }
+            crenc = true;
+            memcpy( d->encrb, d->preBuf, d->preLen );
+            d->encrbs = d->preLen;
+	    d->preBuf = 0;
+        }
+
         if ( ctgone && encgone ) {
             // if both file descriptors are gone, there's nothing left
             // to do. but maybe we try anyway.
