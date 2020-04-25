@@ -664,7 +664,17 @@ void Connection::startTls()
         return;
     }
 
-    TlsThread * t = new TlsThread();
+    char * preBuf = 0;
+    if ( readBuffer()->size() > 0 ) {
+        log( "startTls with preBuf of " + fn(readBuffer()->size()) + " bytes", Log::Debug );
+        preBuf = (char*)Allocator::alloc( readBuffer()->size(), 0 );
+        for ( int i = 0; i < readBuffer()->size(); ++i ) {
+            preBuf[i] = (*readBuffer())[i];
+        }
+        readBuffer()->remove( readBuffer()->size() );
+    }
+
+    TlsThread * t = new TlsThread( false, preBuf, readBuffer()->size() );
     if ( t->broken() ) {
         log( "Cannot create more threads", Log::Error );
         close();
