@@ -24,6 +24,7 @@ class TlsThreadData
 public:
     TlsThreadData()
         : Garbage(),
+	  preBuf( 0 ), preLen( 0 ),
           ssl( 0 ),
           ctrb( 0 ),
           ctrbo( 0 ), ctrbs( 0 ),
@@ -39,6 +40,8 @@ public:
           broken( false )
         {}
 
+    char * preBuf;
+    int preLen;
     SSL * ssl;
 
     // clear-text read buffer, ie. data coming from aox
@@ -137,11 +140,14 @@ void TlsThread::setup()
     to initiate the handshake).
 */
 
-TlsThread::TlsThread( bool asClient )
+TlsThread::TlsThread( bool asClient, char * preBuf, int preLen )
     : d( new TlsThreadData )
 {
     if ( !ctx )
         setup();
+
+    d->preBuf = preBuf;
+    d->preLen = preLen;
 
     d->ssl = ::SSL_new( ctx );
     if ( asClient )
@@ -195,7 +201,22 @@ void TlsThread::start()
     bool ctgone = false;
     bool encgone = false;
     bool finish = false;
+    bool first = true;
     while ( !finish && !d->broken ) {
+
+        if ( first ) {
+            first = false;
+            if ( d->preBuf ) {
+                if ( d->preLen > bs ) {
+                    log( "TlSThread pre-loaded buffer (" + fn(d->preLen) + "b) is larger than blocksize (" + fn(bs) + "b)", Log::Error );
+                    d->preLen = bs;
+                }
+                log( "TlSThread pre-loaded buffer (" + fn(d->preLen) + "b)", Log::Debug );
+                memcpy( d->encrb, d->preBuf, d->preLen );
+                d->encrbs = d->preLen;
+            }
+        }
+
         // are our read buffers empty, and select said we can read? if
         // so, try to read
         if ( crct ) {

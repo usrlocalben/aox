@@ -153,6 +153,14 @@ IMAP::IMAP( int s )
     if ( s < 0 )
         return;
 
+    enqueueBanner();
+    setTimeoutAfter( 120 );
+    EventLoop::global()->addConnection( this );
+}
+
+
+void IMAP::enqueueBanner()
+{
     EString banner = "* OK [CAPABILITY " +
                     Capability::capabilities( this ) + "] " +
                     Configuration::hostname() +
@@ -161,9 +169,8 @@ IMAP::IMAP( int s )
         banner.append( " (security checking disabled)" );
     banner.append( "\r\n" );
     enqueue( banner );
-    setTimeoutAfter( 120 );
-    EventLoop::global()->addConnection( this );
 }
+
 
 
 /*! Handles the incoming event \a e as appropriate for its type. */
@@ -729,9 +736,40 @@ void IMAP::setSession( Session * s )
 IMAPS::IMAPS( int s )
     : IMAP( s )
 {
-    EString * tmp = writeBuffer()->removeLine();
-    startTls();
-    enqueue( *tmp + "\r\n" );
+    if ( s < 0 )
+        return;
+
+    setTimeoutAfter( 120 );
+    EventLoop::global()->addConnection( this );
+}
+
+
+void IMAPS::react( Event e )
+{
+    if ( hasTls() )
+        return IMAP::react( e );
+
+    switch ( e ) {
+    case Read:
+        if ( !checkProxyHeader() )
+            return;
+        startTls();
+        enqueueBanner();
+        break;
+    case Timeout:
+        log( "timeout before starttls in imaps" );
+        Connection::setState( Closing );
+        setSession( 0 );
+        break;
+    case Connect:
+        break;
+    case Error:
+    case Close:
+        log( "error/close before starttls in imaps" );
+        break;
+    case Shutdown:
+        break;
+    }
 }
 
 
