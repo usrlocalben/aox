@@ -280,8 +280,6 @@ void Configuration::add( const EString & l )
     i++;
     while ( l[i] == ' ' || l[i] == '\t' )
         i++;
-    if ( d->contains( name ) )
-        log( "Variable specified twice: " + name, Log::Disaster );
     d->seen.append( name );
 
     uint n = 0;
