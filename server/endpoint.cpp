@@ -11,19 +11,23 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/un.h>
+#include <stdlib.h>  // getenv
+#include <unistd.h>  // getpid
 
+const int kSystemdBeginFD = 3;
 
 class EndpointData
     : public Garbage
 {
 public:
     EndpointData()
-        : valid( false ), proto( Endpoint::IPv4 ), ip4a( 0 ), port( 0 )
+        : valid( false ), proto( Endpoint::IPv4 ), fd( -1 ), ip4a( 0 ), port( 0 )
     {}
 
     bool valid;
     Endpoint::Protocol proto;
     EString ua;
+    int fd;
     ushort ip6a[8];
     uint ip4a;
     uint port;
@@ -77,6 +81,122 @@ Endpoint::Endpoint( const EString &address, uint port )
         d->valid = true;
         d->proto = Unix;
         d->ua = address;
+    }
+
+    else if ( address.startsWith( "fd/" ) ) {
+        EStringList * parts = EStringList::split( '/', address );
+        EString& value = *parts->lastElement();
+
+        bool good;
+        d->fd = value.number( &good );
+        if ( !good ) {
+            log( "bad fd endpoint value \"" + value + "\"", Log::Disaster );
+            return;
+        }
+        d->proto = IPv4;
+        d->ip4a = 0;
+        d->valid = true;
+    }
+
+    else if ( address.startsWith( "systemd/" ) ) {
+        bool good;
+        const char * tmp = getenv( "LISTEN_PID" );
+        if ( !tmp ) {
+            log( "systemd endpoint configured, but LISTEN_PID not in environment", Log::Disaster );
+            return;
+        }
+        EString listenPIDText( tmp );
+        int listenPID = listenPIDText.number( &good );
+        if ( !good ) {
+            log( "unexpected systemd LISTEN_PID value " + listenPIDText, Log::Disaster );
+            return;
+        }
+        if ( listenPID != getpid() ) {
+            log( "systemd LISTEN_PID value does not match mine!", Log::Disaster );
+            return;
+        }
+        tmp = getenv( "LISTEN_FDS" );
+        if ( !tmp ) {
+            log( "systemd endpoint configured, but LISTEN_FDS not in environment", Log::Disaster );
+            return;
+        }
+        EString fdCntText( tmp );
+        int fdCnt = fdCntText.number( &good );
+        if ( !good ) {
+            log( "unexpected systemd LISTEN_FDS value " + fdCntText, Log::Disaster );
+            return;
+        }
+        const int fdEnd = kSystemdBeginFD + fdCnt;
+
+        EStringList * parts = EStringList::split( '/', address );
+        EStringList::Iterator it( parts );
+        uint domain = 0;
+        int index = -1;
+        while ( it ) {
+            EStringList * kv = EStringList::split( '.', *it );
+            EString& key = *kv->firstElement();
+            EString& value = *kv->lastElement();
+            if ( key == "domain" ) {
+                if ( value == "INET" ) {
+                    domain = AF_INET;
+                }
+                else if ( value == "UNIX" ) {
+                    domain = AF_UNIX;
+                }
+                else if ( value == "INET6" ) {
+                    domain = AF_INET6;
+                }
+                else {
+                    log( "unknown systemd endpoint domain " + value, Log::Disaster );
+                    return;
+                }
+            }
+            else if ( key == "index" ) {
+                bool good;
+                index = value.number( &good );
+                if ( !good ) {
+                    log( "invalid systemd endpoint index " + value, Log::Disaster );
+                    return;
+                }
+            }
+            else {
+                log( "unexpected systemd endpoitn argument " + key, Log::Disaster );
+                return;
+            }
+        }
+        if ( domain == 0 ) {
+            log( "systemd endpoint missing domain argument", Log::Disaster );
+            return;
+        }
+        if ( index == -1 ) {
+            log( "systemd endpoint missing index argument", Log::Disaster );
+            return;
+        }
+
+        d->fd = kSystemdBeginFD + index;
+        if ( d->fd >= fdEnd ) {
+            log( "systemd endpoint index out of bounds", Log::Disaster );
+            return;
+        }
+
+        if ( domain == AF_UNIX ) {
+            d->proto = Unix;
+            d->ua = "<unknown>";
+        }
+        else if ( domain == AF_INET ) {
+            d->proto = IPv4;
+            d->ip4a = 0;
+        }
+        else if ( domain == AF_INET6 ) {
+            d->proto = IPv6;
+            for (int i=0; i<8; ++i)
+                d->ip6a[i] = 0;
+        }
+        else {
+            log( "should never reach here", Log::Disaster );
+            return;
+        }
+        d->valid = true;
     }
     else {
         uint i = 0;
@@ -164,14 +284,14 @@ Endpoint::Endpoint( Configuration::Text address,
     : d( new EndpointData )
 {
     EString a( Configuration::text( address ) );
-    if ( a[0] == '/' ) {
+    if ( a[0] == '/' || a.startsWith("systemd/") || a.startsWith("fd/") ) {
         Endpoint tmp( a, 0 );
         *this = tmp;
         if ( Configuration::present( port ) )
             log( EString( Configuration::name( port ) ) +
                  " meaningless since " +
                  Configuration::name( address ) +
-                 " is a unix-domain address",
+                 " is a unix-domain or inherited socket",
                  Log::Error );
     }
     else {
@@ -221,6 +341,10 @@ EString Endpoint::address() const
 
     if ( !d->valid )
         return "";
+
+    if ( d->fd >= 0 ) {
+        return "inherited:" + fn( d->fd );
+    }
 
     switch ( d->proto ) {
     case Unix:
@@ -298,6 +422,22 @@ uint Endpoint::port() const
     if ( !d->valid )
         return 0;
     return d->port;
+}
+
+
+/*! inherited? */
+
+bool Endpoint::inherited() const
+{
+    return d->fd >= 0;
+}
+
+
+/*! inherited fd? */
+int Endpoint::fd() const
+{
+    // XXX assert(d->fd >= 0);
+    return d->fd;
 }
 
 

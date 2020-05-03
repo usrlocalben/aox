@@ -729,38 +729,38 @@ int Connection::listen( const Endpoint &e, bool silent )
         return -1;
 
     if ( !valid() ) {
-        init( socket( e.protocol() ) );
-        if ( !valid() )
-            return -1;
+        init( e.inherited() ? e.fd() : socket( e.protocol() ) );
     }
 
-    int i = 1;
-    ::setsockopt( d->fd, SOL_SOCKET, SO_REUSEADDR, &i, sizeof (int) );
+    if ( !e.inherited() ) {
+        int i = 1;
+        ::setsockopt( d->fd, SOL_SOCKET, SO_REUSEADDR, &i, sizeof (int) );
 
-    if ( e.protocol() == Endpoint::Unix )
-        unlink( File::chrooted( e.address() ).cstr() );
+        if ( e.protocol() == Endpoint::Unix )
+            unlink( File::chrooted( e.address() ).cstr() );
 
-    int retcode = ::bind( d->fd, e.sockaddr(), e.sockaddrSize() );
-    if ( retcode < 0 ) {
-        if ( errno == EADDRINUSE ) {
+        int retcode = ::bind( d->fd, e.sockaddr(), e.sockaddrSize() );
+        if ( retcode < 0 ) {
+            if ( errno == EADDRINUSE ) {
+                if ( !silent )
+                    log( "Cannot listen to " +
+                         e.address() + " port " + fn( e.port() ) +
+                         " because another process is occupying it", Log::Error );
+                return -1;
+            }
             if ( !silent )
-                log( "Cannot listen to " +
+                log( "bind( " + fn( d->fd ) + ", " +
                      e.address() + " port " + fn( e.port() ) +
-                     " because another process is occupying it", Log::Error );
+                     " ) returned errno " + fn( errno ), Log::Debug );
             return -1;
         }
-        if ( !silent )
-            log( "bind( " + fn( d->fd ) + ", " +
-                 e.address() + " port " + fn( e.port() ) +
-                 " ) returned errno " + fn( errno ), Log::Debug );
-        return -1;
-    }
-    if ( ::listen( d->fd, 64 ) < 0 ) {
-        if ( !silent )
-            log( "listen( " + fn( d->fd ) + ", 64 ) for address " +
-                 e.address() + " port " + fn( e.port() ) +
-                 " ) returned errno " + fn( errno ), Log::Debug );
-        return -1;
+        if ( ::listen( d->fd, 64 ) < 0 ) {
+            if ( !silent )
+                log( "listen( " + fn( d->fd ) + ", 64 ) for address " +
+                     e.address() + " port " + fn( e.port() ) +
+                     " ) returned errno " + fn( errno ), Log::Debug );
+            return -1;
+        }
     }
 
     setState( Listening );
