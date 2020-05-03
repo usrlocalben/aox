@@ -3,6 +3,7 @@
 #ifndef CONFIGURATION_H
 #define CONFIGURATION_H
 
+#include "estringlist.h"
 #include "estring.h"
 #include "list.h"
 #include "log.h"
@@ -14,7 +15,7 @@ class Configuration
 private:
     Configuration();
 public:
-    static void setup( const EString &, bool = false );
+    static void setup( const EString &, const EStringList * const = 0, bool = false );
     static void report();
 
     enum CompileTimeSetting {
