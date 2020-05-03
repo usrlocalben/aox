@@ -25,6 +25,7 @@ public:
     TlsThreadData()
         : Garbage(),
           ssl( 0 ),
+          preBuf( 0 ), preLen( 0 ),
           ctrb( 0 ),
           ctrbo( 0 ), ctrbs( 0 ),
           ctwb( 0 ),
@@ -40,6 +41,8 @@ public:
         {}
 
     SSL * ssl;
+    char * preBuf;
+    int preLen;
 
     // clear-text read buffer, ie. data coming from aox
     char * ctrb;
@@ -137,11 +140,14 @@ void TlsThread::setup()
     to initiate the handshake).
 */
 
-TlsThread::TlsThread( bool asClient )
+TlsThread::TlsThread( bool asClient, char * preBuf, int preLen )
     : d( new TlsThreadData )
 {
     if ( !ctx )
         setup();
+
+    d->preBuf = preBuf;
+    d->preLen = preLen;
 
     d->ssl = ::SSL_new( ctx );
     if ( asClient )
@@ -196,6 +202,8 @@ void TlsThread::start()
     bool encgone = false;
     bool finish = false;
     while ( !finish && !d->broken ) {
+
+
         // are our read buffers empty, and select said we can read? if
         // so, try to read
         if ( crct ) {
@@ -212,6 +220,20 @@ void TlsThread::start()
                 d->encrbs = 0;
             }
         }
+
+        if ( d->preBuf ) {
+            // on the first iteration, the
+	    // preBuf data is pushed into
+	    // the stream
+            if ( d->preLen > bs ) {
+                d->preLen = bs;
+            }
+            crenc = true;
+            memcpy( d->encrb, d->preBuf, d->preLen );
+            d->encrbs = d->preLen;
+	    d->preBuf = 0;
+        }
+
         if ( ctgone && encgone ) {
             // if both file descriptors are gone, there's nothing left
             // to do. but maybe we try anyway.

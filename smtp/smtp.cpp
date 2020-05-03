@@ -153,6 +153,10 @@ void SMTP::react( Event e )
 void SMTP::parse()
 {
     Buffer * r = readBuffer();
+
+    if ( !checkProxyHeader() )
+        return;
+
     bool progress = true;
     while ( progress && Connection::state() == Connected ) {
         uint n = r->size();
