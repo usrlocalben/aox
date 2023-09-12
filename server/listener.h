@@ -76,6 +76,9 @@ public:
             if ( addresses.isEmpty() || !any6ListensTo4() )
                 addresses.append( "0.0.0.0" );
         }
+	else if ( a.startsWith( "systemd/" ) || a.startsWith( "fd/" ) ) {
+	    addresses.append(a);
+	}
         else {
             // XXX: Hack to make it compile
             EStringList::Iterator it( Resolver::resolve( a ) );
