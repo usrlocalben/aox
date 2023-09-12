@@ -8,6 +8,9 @@
 class EString;
 class Endpoint;
 
+const int LT_LOGD = 0;
+const int LT_SYSLOG = 1;
+const int LT_STDERR = 2;
 
 class LogClient
     : public Logger
@@ -22,7 +25,7 @@ public:
 private:
     class LogClientData * d;
     LogClient();
-    bool useSyslog;
+    int logType;
 };
 
 

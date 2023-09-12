@@ -327,7 +327,7 @@ static void checkFilePermissions()
     }
     addPath( Path::ExistingSocket, Configuration::EntropySource );
     EString lf = Configuration::text( Configuration::LogFile );
-    if ( lf != "-" && !lf.startsWith( "syslog/" ) )
+    if ( lf != "-" && !lf.startsWith( "syslog/" ) && !lf.startsWith( "stderr" ) )
         addPath( Path::CreatableFile, Configuration::LogFile );
     addPath( Path::ReadableDir, Configuration::BinDir );
     addPath( Path::ReadableDir, Configuration::PidFileDir );
@@ -1019,8 +1019,8 @@ void Stopper::execute()
                     new ServerPinger( Configuration::ImapAddress,
                                       Configuration::ImapPort, this ) );
             if ( Configuration::present( Configuration::LogFile ) &&
-                 !Configuration::text(
-                     Configuration::LogFile ).startsWith( "syslog/" ) )
+                 !( Configuration::text( Configuration::LogFile ).startsWith( "syslog/" ) ||
+		    Configuration::text( Configuration::LogFile ).startsWith( "stderr" ) ) )
                 d->pingers->append(
                     new ServerPinger( Configuration::LogAddress,
                                       Configuration::LogPort, this ) );
