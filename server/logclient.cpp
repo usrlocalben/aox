@@ -103,14 +103,14 @@ public:
 */
 
 LogClient::LogClient()
-    : Logger(), d( 0 ), useSyslog( false )
+    : Logger(), d( 0 ), logType( LT_LOGD )
 {
 }
 
 
 void LogClient::send( const EString &id, Log::Severity s, const EString & m )
 {
-    if ( useSyslog ) {
+    if ( logType == LT_SYSLOG ) {
         uint sp = LOG_DEBUG;
         switch ( s ) {
         case Log::Debug:
@@ -130,6 +130,11 @@ void LogClient::send( const EString &id, Log::Severity s, const EString & m )
             break;
         }
         ::syslog( sp, "%s %s", id.cstr(), m.cstr() );
+        return;
+    }
+
+    if ( logType == LT_STDERR ) {
+        fprintf( stderr, "id=%s msg=%s\n", id.cstr(), m.cstr() );
         return;
     }
 
@@ -172,8 +177,10 @@ void LogClient::setup( const EString & n )
 
     EString logName( Configuration::text( Configuration::LogFile ) );
     LogClient * client = new LogClient();
-    if ( logName.startsWith( "syslog/" ) ) {
-        client->useSyslog = true;
+    if ( logName.startsWith( "stderr" ) ) {
+        client->logType = LT_STDERR;
+    } else if ( logName.startsWith( "syslog/" ) ) {
+        client->logType = LT_SYSLOG;
         EString f = logName.section( "/", 2 ).lower();
         uint sfc = LOG_LOCAL7;
         if ( f == "auth" )
