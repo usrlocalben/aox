@@ -8,6 +8,7 @@
 #include "configuration.h"
 
 #include <unistd.h>
+#include <cstring>  // memcpy
 
 #include <pthread.h>
 
@@ -232,15 +233,15 @@ void TlsThread::start()
 
         if ( d->preBuf ) {
             // on the first iteration, the
-	    // preBuf data is pushed into
-	    // the stream
+            // preBuf data is pushed into
+            // the stream
             if ( d->preLen > bs ) {
                 d->preLen = bs;
             }
             crenc = true;
             memcpy( d->encrb, d->preBuf, d->preLen );
             d->encrbs = d->preLen;
-	    d->preBuf = 0;
+            d->preBuf = 0;
         }
 
         if ( ctgone && encgone ) {
