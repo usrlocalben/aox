@@ -102,9 +102,14 @@ public:
     virtual void setSession( class Session * );
     class Session * session() const;
 
+    void setRealPeer( const struct sockaddr * );
+    void setRealSelf( const struct sockaddr * );
+
 protected:
     void substitute( Connection *, Event );
     void init( int );
+
+    bool checkProxyHeader();
 
 private:
     class ConnectionData *d;
