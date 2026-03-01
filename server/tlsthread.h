@@ -10,7 +10,7 @@ class TlsThread
     : public Garbage
 {
 public:
-    TlsThread( bool = false );
+    TlsThread( bool = false, char * prebuf = 0, int prelen = 0 );
     ~TlsThread();
 
     static void setup();

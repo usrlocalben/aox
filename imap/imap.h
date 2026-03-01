@@ -19,6 +19,7 @@ class IMAP
 public:
     IMAP( int );
 
+    void enqueueBanner();
     void parse();
     virtual void react( Event );
     void reserve( Command * );
@@ -81,6 +82,7 @@ class IMAPS
 {
 public:
     IMAPS( int );
+    void react( Event );
 };
 
 
