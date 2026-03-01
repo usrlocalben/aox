@@ -38,7 +38,7 @@ public:
           encwbo( 0 ), encwbs( 0 ),
           encfd( -1 ),
           networkBio( 0 ), sslBio( 0 ), thread( 0 ),
-          broken( false )
+          broken( false ), shutdown( false )
         {}
 
     SSL * ssl;
@@ -74,6 +74,7 @@ public:
 
     pthread_t thread;
     bool broken;
+    bool shutdown;
 };
 
 
@@ -126,8 +127,8 @@ void TlsThread::setup()
              ": " + reason,
              Log::Disaster );
     }
-    if ( !SSL_CTX_use_RSAPrivateKey_file( ctx, keyFile.cstr(),
-                                          SSL_FILETYPE_PEM ) )
+    if ( !SSL_CTX_use_PrivateKey_file( ctx, keyFile.cstr(),
+                                       SSL_FILETYPE_PEM ) )
         log( "OpenSSL needs the private key in this file: " + keyFile,
              Log::Disaster );
     // we go on anyway; the disaster will take down the server in
@@ -319,6 +320,9 @@ void TlsThread::start()
                 d->ctrbs = 0;
             }
         }
+        if ( d->shutdown && d->ctrbo == d->ctrbs ) {
+            finish = ( SSL_shutdown( d->ssl ) > 0 );
+        }
         if ( d->ctwbs == 0 ) {
             d->ctwbs = SSL_read( d->ssl, d->ctwb, bs );
             if ( d->ctwbs < 0 ) {
@@ -373,7 +377,7 @@ void TlsThread::start()
                 // if we think there's something to do, we wait for a
                 // few seconds. not very long, just in case openssl is
                 // acting behind our back.
-                tv.tv_sec = 4;
+                tv.tv_sec = 2;
                 tv.tv_usec = 0;
             }
             else {
@@ -468,6 +472,25 @@ void TlsThread::setClientFD( int fd )
 bool TlsThread::broken() const
 {
     return d->broken;
+}
+
+
+/*! Initiates a very orderly shutdown.
+*/
+
+void TlsThread::shutdown()
+{
+    d->shutdown = true;
+}
+
+
+/*! Returns true if this TlsThread has been told to shut down via
+    shutdown(), and false if not.
+*/
+
+bool TlsThread::isShuttingDown() const
+{
+    return d->shutdown;
 }
 
 

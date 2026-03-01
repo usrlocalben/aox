@@ -29,6 +29,7 @@ public:
     void setState( State );
 
     enum ClientCapability { Condstore, Annotate, Unicode, QResync,
+                            UidOnly,
                             NumClientCapabilities };
     bool clientSupports( ClientCapability ) const;
     void setClientSupports( ClientCapability );
